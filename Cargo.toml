@@ -1,0 +1,15 @@
+[package]
+name = "pwgraster"
+version = "0.1.0"
+authors = ["Tyler Hall <tylerwhall@gmail.com>"]
+license = "MIT/Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/tylerwhall/pwgraster"
+homepage = "https://github.com/tylerwhall/pwgraster"
+description = "Decoding of PWG (Printer Working Group) raster images."
+
+[dependencies]
+byteorder = "1.0.0"
+enum_primitive = "0.1.1"
+memchr = "1.0.1"
+png = "0.7.0"
