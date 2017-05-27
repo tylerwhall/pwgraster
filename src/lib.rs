@@ -1,3 +1,32 @@
+//!# PWG Raster
+//!
+//!Decoding of Printer Working Group Candidate Standard 5102.4-2012 raster images.
+//!
+//!# Decoding multiple pages
+//!
+//! [next_page()](struct.PWGReader.html#method.next_page) will call a closure with a page structure that allows access to
+//! the header and page data. It will return Ok(None) when there are no more
+//! pages.
+//!
+//!```no_run
+//!use std::fs::File;
+//!use std::io::BufReader;
+//!use pwgraster::PWGReader;
+//!let infile = File::open("./color.jpg-4x6-srgb-8-600dpi.pwg")
+//!                 .expect("Failed to open input");
+//!let mut pwg = PWGReader::new(BufReader::new(infile), true).unwrap();
+//!while pwg.next_page(|page| {
+//!        let width = page.header().Width().unwrap();
+//!        let height = page.header().Height().unwrap();
+//!        println!("Page dimensions {}x{}", width, height);
+//!        let mut buf = Vec::with_capacity(page.header().image_size_bytes().unwrap());
+//!        println!("Reading page");
+//!        page.unpack(&mut buf).unwrap();
+//!        println!("Page read");
+//!        // Do something with image data
+//!        Ok(())
+//!    }).unwrap().is_some() {}
+//!```
 extern crate byteorder;
 #[macro_use]
 extern crate enum_primitive;
@@ -26,9 +55,13 @@ pub struct Error {
 }
 
 #[derive(Debug)]
-pub enum UnpackError {
+pub enum StreamError {
+    /// Decoding a header field failed
     HeaderError(Error),
+    /// Error from Read or Write
     IO(io::Error),
+    /// Initial sync word != PWG_SYNC_WORD
+    BadSyncWord,
     /// Pixel repeat exceeded line length
     LineOverflow,
     /// Line repeat exceeded image height
@@ -37,15 +70,15 @@ pub enum UnpackError {
     UnsupportedBpp,
 }
 
-impl From<Error> for UnpackError {
+impl From<Error> for StreamError {
     fn from(e: Error) -> Self {
-        UnpackError::HeaderError(e)
+        StreamError::HeaderError(e)
     }
 }
 
-impl From<io::Error> for UnpackError {
+impl From<io::Error> for StreamError {
     fn from(e: io::Error) -> Self {
-        UnpackError::IO(e)
+        StreamError::IO(e)
     }
 }
 
@@ -597,13 +630,13 @@ impl<'a> PageHeader<'a> {
 
     /// Return the image's smallest unit of pixel values in bytes. This is the
     /// bpp of the image or 1 in the case of packed 1-bit pixels.
-    fn chunk_bytes(&self) -> Result<usize, UnpackError> {
+    fn chunk_bytes(&self) -> Result<usize, StreamError> {
         match self.BitsPerPixel()? {
             // 1bpp is packed into bytes
             1 => Ok(1),
             // Else divide bpp by 8
             bpp if bpp % 8 == 0 => Ok(bpp as usize / 8),
-            _ => Err(UnpackError::UnsupportedBpp),
+            _ => Err(StreamError::UnsupportedBpp),
         }
     }
 
@@ -628,7 +661,7 @@ impl<'a> PageHeader<'a> {
     pub fn unpack_page<R: Read, W: Write>(&self,
                                           reader: &mut R,
                                           writer: &mut W)
-                                          -> Result<(), UnpackError> {
+                                          -> Result<(), StreamError> {
         let chunk_bytes = self.chunk_bytes()?;
         let bytes_per_line = self.bytes_per_line()?;
         let height = self.Height()? as usize;
@@ -645,7 +678,7 @@ pub fn unpack_page<R: Read, W: Write>(reader: &mut R,
                                       chunk_bytes: usize,
                                       bytes_per_line: usize,
                                       height: usize)
-                                      -> Result<(), UnpackError> {
+                                      -> Result<(), StreamError> {
     let mut pixel_buf = Vec::with_capacity(chunk_bytes);
     pixel_buf.resize(chunk_bytes, 0);
     let mut line_buf = Vec::with_capacity(bytes_per_line);
@@ -657,7 +690,7 @@ pub fn unpack_page<R: Read, W: Write>(reader: &mut R,
         let mut line_bytes = 0;
 
         if (lines_complete + line_repeat) > height {
-            return Err(UnpackError::HeightOverflow);
+            return Err(StreamError::HeightOverflow);
         }
 
         while line_bytes < bytes_per_line {
@@ -668,7 +701,7 @@ pub fn unpack_page<R: Read, W: Write>(reader: &mut R,
 
                 let repeat_length = pixel_buf.len() * repeat_count as usize;
                 if (bytes_per_line - line_bytes) < repeat_length {
-                    return Err(UnpackError::LineOverflow);
+                    return Err(StreamError::LineOverflow);
                 }
 
                 for _ in 0..repeat_count {
@@ -681,7 +714,7 @@ pub fn unpack_page<R: Read, W: Write>(reader: &mut R,
                 let byte_count = count * pixel_buf.len();
 
                 if (bytes_per_line - line_bytes) < byte_count {
-                    return Err(UnpackError::LineOverflow);
+                    return Err(StreamError::LineOverflow);
                 }
                 reader
                     .read_exact(&mut line_buf[line_bytes..line_bytes + byte_count])?;
@@ -715,7 +748,7 @@ fn test_unpack() {
                         1,
                         4,
                         1);
-    if let Err(UnpackError::IO(e)) = e {
+    if let Err(StreamError::IO(e)) = e {
         assert_eq!(e.kind(), io::ErrorKind::WriteZero);
     } else {
         panic!("{:?}", e);
@@ -725,7 +758,7 @@ fn test_unpack() {
                         1,
                         4,
                         1);
-    if let Err(UnpackError::IO(e)) = e {
+    if let Err(StreamError::IO(e)) = e {
         assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
     } else {
         panic!("{:?}", e);
@@ -736,7 +769,7 @@ fn test_unpack() {
                       1,
                       3,
                       1) {
-        Err(UnpackError::LineOverflow) => (),
+        Err(StreamError::LineOverflow) => (),
         e => panic!("{:?}", e),
     }
 
@@ -747,7 +780,116 @@ fn test_unpack() {
                       1,
                       4,
                       1) {
-        Err(UnpackError::HeightOverflow) => (),
+        Err(StreamError::HeightOverflow) => (),
         e => panic!("{:?}", e),
+    }
+}
+
+/// Top-level structure over a reader that returns decoded pages
+pub struct PWGReader<R: Read> {
+    reader: R,
+    header_buf: [u8; PWG_HEADER_SIZE],
+    page_read: bool,
+}
+
+impl<R: Read> PWGReader<R> {
+    /// Construct a PWGReader over a byte reader
+    ///
+    /// If syncword is true, read and validate the initial sync word that comes
+    /// before the first page header. If false, the reader should point to a
+    /// page header.
+    pub fn new(mut reader: R, syncword: bool) -> Result<Self, StreamError> {
+        if syncword {
+            let mut sync = [0; 4];
+            reader.read_exact(&mut sync[..])?;
+            if &sync != PWG_SYNC_WORD {
+                return Err(StreamError::BadSyncWord);
+            }
+        }
+
+        Ok(PWGReader {
+               reader: reader,
+               header_buf: [0; PWG_HEADER_SIZE],
+               page_read: false,
+           })
+    }
+
+    /// Return the reader
+    pub fn into_inner(self) -> R {
+        self.reader
+    }
+
+    /// Invoke a closure on the next page. The closure is passed a page
+    /// structure which can return the header and unpack the page data.
+    pub fn next_page<T, F: Fn(PWGPage<R>) -> Result<T, StreamError>>
+        (&mut self,
+         f: F)
+         -> Result<Option<T>, StreamError> {
+        struct NullWriter;
+
+        impl Write for NullWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        // This is like read_exact() but returns Ok(None) if we read exactly 0.
+        let mut header_bytes = 0;
+        while header_bytes < self.header_buf.len() {
+            match self.reader.read(&mut self.header_buf[header_bytes..]) {
+                Ok(len) if len == 0 => {
+                    if header_bytes == 0 {
+                        // Reached the end at the start of the next header, so
+                        // there aren't any more pages.
+                        return Ok(None);
+                    } else {
+                        // It might be a problem if we get EOF in the middle of
+                        // a header.
+                        return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+                    }
+                }
+                Ok(len) => header_bytes += len,
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    } else {
+                        // EOF during a header or any other error. Raise the error.
+                        return Err(e.into());
+                    }
+                }
+            }
+        }
+
+        self.page_read = false;
+        let ret = f(PWGPage(self))?;
+        if !self.page_read {
+            // Need to flush the page data if the client didn't read it so the
+            // reader is pointing at the next header.
+            PWGPage(self).unpack(&mut NullWriter)?;
+        }
+        Ok(Some(ret))
+    }
+}
+
+/// Returned by PWGReader::next_page(). Allows access to the page header and image data.
+pub struct PWGPage<'a, R: Read + 'a>(&'a mut PWGReader<R>);
+
+impl<'a, R: Read + 'a> PWGPage<'a, R> {
+    /// Get the page's header
+    pub fn header(&'a self) -> PageHeader<'a> {
+        // Unwrap is safe because we know the size of our buffer
+        PageHeader::from_buf(&self.0.header_buf).unwrap()
+    }
+
+    /// Unpack PWG image data to a writer. This consumes the page.
+    pub fn unpack<W: Write>(self, writer: &mut W) -> Result<(), StreamError> {
+        self.0.page_read = true;
+        // Unwrap is safe because we know the size of our buffer
+        let header = PageHeader::from_buf(&self.0.header_buf).unwrap();
+        header.unpack_page(&mut self.0.reader, writer)
     }
 }
