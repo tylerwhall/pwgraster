@@ -505,7 +505,7 @@ pub const PWG_HEADER_SIZE: usize = 1796;
 make_struct! {
     /// Accessors into a slice containing a PWG page header
     pub struct PageHeader {
-        0, 63, PwgRaster: CString,
+        0, 63, PwgRaster: PwgRaster,
         64, 127, MediaColor: CString,
         128, 191, MediaType: CString,
         192, 255, PrintContentOptimize: CString,
