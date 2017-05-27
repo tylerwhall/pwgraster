@@ -49,6 +49,7 @@ impl From<io::Error> for UnpackError {
     }
 }
 
+/// Data types used in the PWG header
 pub mod types {
     use std::str;
     use byteorder::{ByteOrder, BigEndian};
@@ -449,11 +450,12 @@ pub mod types {
 use types::*;
 
 macro_rules! make_struct {
-    ( pub struct $name:ident {
+    ($(#[$attr:meta])* pub struct $name:ident {
             $(
                 $start:expr, $end:expr, $fname:ident: $ftype:ident
             ),*
     } ) => {
+        $(#[$attr])*
         pub struct $name<'a>(&'a [u8]);
         impl<'a> $name<'a> {
                 #[inline]
@@ -495,10 +497,13 @@ macro_rules! make_struct {
     }
 }
 
+/// 4 bytes found at the beginning of PWG data
 pub const PWG_SYNC_WORD: &'static [u8; 4] = b"RaS2";
+/// Size of the fixed-length PWG header for each page
 pub const PWG_HEADER_SIZE: usize = 1796;
 
 make_struct! {
+    /// Accessors into a slice containing a PWG page header
     pub struct PageHeader {
         0, 63, PwgRaster: CString,
         64, 127, MediaColor: CString,
@@ -632,6 +637,9 @@ impl<'a> PageHeader<'a> {
     }
 }
 
+/// Stream PWG image data from a reader to a writer
+///
+/// The reader must point to the image data found immediately after the header.
 pub fn unpack_page<R: Read, W: Write>(reader: &mut R,
                                       writer: &mut W,
                                       chunk_bytes: usize,
