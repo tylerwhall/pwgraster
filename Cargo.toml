@@ -12,4 +12,12 @@ description = "Decoding of PWG (Printer Working Group) raster images."
 byteorder = "1.0.0"
 enum_primitive = "0.1.1"
 memchr = "1.0.1"
-png = "0.7.0"
+png = { version = "0.7.0", optional = true }
+
+[features]
+default = []
+
+[[bin]]
+name = "pwg2png"
+path = "src/bin/pwg2png.rs"
+required-features = ["png"]
