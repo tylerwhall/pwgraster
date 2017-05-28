@@ -16,12 +16,12 @@
 //!                 .expect("Failed to open input");
 //!let mut pwg = PWGReader::new(BufReader::new(infile), true).unwrap();
 //!while pwg.next_page(|page| {
-//!        let width = page.header().Width().unwrap();
-//!        let height = page.header().Height().unwrap();
+//!        let width = page.header().Width()?;
+//!        let height = page.header().Height()?;
 //!        println!("Page dimensions {}x{}", width, height);
-//!        let mut buf = Vec::with_capacity(page.header().image_size_bytes().unwrap());
+//!        let mut buf = Vec::with_capacity(page.header().image_size_bytes()?);
 //!        println!("Reading page");
-//!        page.unpack(&mut buf).unwrap();
+//!        page.unpack(&mut buf)?;
 //!        println!("Page read");
 //!        // Do something with image data
 //!        Ok(())
