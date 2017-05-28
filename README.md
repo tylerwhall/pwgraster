@@ -1,4 +1,4 @@
-# pwgraster
+# pwgraster [![](http://meritbadge.herokuapp.com/pwgraster)](https://crates.io/crates/pwgraster) [![](https://docs.rs/pwgraster/badge.svg)](https://docs.rs/pwgraster)
 Decoding of Printer Working Group Candidate Standard 5102.4-2012 raster images.
 
 ## License
